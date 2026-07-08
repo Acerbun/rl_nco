@@ -1,121 +1,297 @@
+import math
+
 import gym
 from gym import spaces
 import numpy as np
-import math
+
 
 class UAV_Emergency_Env(gym.Env):
-    def __init__(self, num_users=10, reward_type="Q-Min"):
+    def __init__(
+        self,
+        num_users=10,
+        reward_type="Q-Min",
+        use_softmin=True,
+        use_db_norm=True,
+    ):
         super(UAV_Emergency_Env, self).__init__()
-        self.reward_type = reward_type 
-        
+
+        self.reward_type = reward_type
+        self.use_softmin = use_softmin
+        self.use_db_norm = use_db_norm
+
         self.K = num_users
-        self.P_total = 1.0        
-        self.delta_p = 0.02       
-        self.H = 100.0            
-        self.B = 2e6              
-        self.sigma2 = 1e-14       
-        self.beta0 = 1e-4         
-        self.alpha = 3.5          
-        
-        self.max_steps = 200      
+
+        self.P_total = 1.0
+        self.delta_p = 0.02
+
+        self.H = 100.0
+        self.B = 2e6
+        self.sigma2 = 1e-14
+        self.beta0 = 1e-4
+        self.alpha = 3.5
+
+        self.max_steps = 200
         self.current_step = 0
 
-        self.action_space = spaces.Discrete(self.K * (self.K - 1) + 1)
-        self.observation_space = spaces.Box(low=0, high=np.inf, shape=(4 * self.K,), dtype=np.float32)
+        self.action_space = spaces.Discrete(
+            self.K * (self.K - 1) + 1
+        )
 
-        self.n_actions = self.K * (self.K - 1) + 1 
-        self.n_state_dims = 4 * self.K 
+        self.observation_space = spaces.Box(
+            low=0,
+            high=np.inf,
+            shape=(4 * self.K,),
+            dtype=np.float32,
+        )
+
+        self.n_actions = self.K * (self.K - 1) + 1
+        self.n_state_dims = 4 * self.K
 
         self.user_positions = None
-        self.uav_pos = np.array([250.0, 250.0]) 
+
+        self.uav_pos = np.array(
+            [250.0, 250.0],
+            dtype=np.float64,
+        )
+
         self.current_power = None
         self.last_rates = None
-        self.channel_gains = None 
+        self.channel_gains = None
 
-    # =============== 【新增核心辅助函数：dB归一化】 ===============
     def _get_normalized_gains(self):
-        # # 将微小的信道增益转化为对数域 (dB)，防止神经网络输入层数值崩溃
-        # # 1e-20 是防止 log10(0) 的安全垫
-        # gains_db = 10.0 * np.log10(self.channel_gains + 1e-20)
-        # # 在 alpha=3.5 环境下，gains_db 大约在 -140dB 到 -100dB 之间
-        # # 我们用 (dB + 150) / 50 将其完美映射到 [0, 1] 之间！
-        # normalized_gains = (gains_db + 150.0) / 50.0 
-        # return np.clip(normalized_gains, 0.0, 1.0)
+        """
+        Full 与 w/o Softmin：
+            使用 dB 域归一化。
 
-        return np.clip(self.channel_gains, 0.0, 1.0) #dB-Norm
+        w/o dB-Norm：
+            直接输入原始线性信道增益。
+        """
+        if self.use_db_norm:
+            gains_db = 10.0 * np.log10(
+                self.channel_gains + 1e-20
+            )
 
-    # ==========================================================
+            normalized_gains = (
+                gains_db + 150.0
+            ) / 50.0
 
-    def reset(self):
-        self.current_step = 0
-        self.user_positions = np.random.uniform(0, 500, size=(self.K, 2))
-        self.current_power = np.ones(self.K) * (self.P_total / self.K)
-        
-        self.channel_gains = np.zeros(self.K)
+            return np.clip(
+                normalized_gains,
+                0.0,
+                1.0,
+            )
+
+        # w/o dB-Norm
+        return np.clip(
+            self.channel_gains,
+            0.0,
+            1.0,
+        )
+
+    def _calculate_channel_gains(self):
+        """
+        根据当前用户位置计算信道增益。
+        """
+        self.channel_gains = np.zeros(
+            self.K,
+            dtype=np.float64,
+        )
+
         for k in range(self.K):
-            dist_2d = np.linalg.norm(self.uav_pos - self.user_positions[k])
-            d_k = math.sqrt(dist_2d**2 + self.H**2)
-            self.channel_gains[k] = self.beta0 * (d_k ** -self.alpha)
-            
-        self.last_rates = np.zeros(self.K)
+            dist_2d = np.linalg.norm(
+                self.uav_pos - self.user_positions[k]
+            )
+
+            distance_3d = math.sqrt(
+                dist_2d**2 + self.H**2
+            )
+
+            self.channel_gains[k] = (
+                self.beta0
+                * distance_3d ** (-self.alpha)
+            )
+
+    def _calculate_rates(self):
+        """
+        根据功率和信道增益计算用户速率，单位为 Mbps。
+        """
+        rates = np.zeros(
+            self.K,
+            dtype=np.float64,
+        )
+
         for k in range(self.K):
-            snr = (self.current_power[k] * self.channel_gains[k]) / self.sigma2
-            self.last_rates[k] = (self.B / self.K) * math.log2(1 + snr) / 1e6
-            
-        bottleneck_idx = np.argmin(self.last_rates)
-        bottleneck_onehot = np.zeros(self.K)
+            snr = (
+                self.current_power[k]
+                * self.channel_gains[k]
+            ) / self.sigma2
+
+            rates[k] = (
+                (self.B / self.K)
+                * math.log2(1.0 + snr)
+                / 1e6
+            )
+
+        return rates
+
+    def _build_state(self):
+        """
+        构造状态：
+            power + rate + bottleneck one-hot + channel gains
+        """
+        bottleneck_idx = int(
+            np.argmin(self.last_rates)
+        )
+
+        bottleneck_onehot = np.zeros(
+            self.K,
+            dtype=np.float64,
+        )
+
         bottleneck_onehot[bottleneck_idx] = 1.0
-        
-        # 【修改位置 1】：使用 dB 归一化替代暴力的 1e13 线性放大
-        normalized_gains = self._get_normalized_gains()
-        return np.concatenate((self.current_power, self.last_rates, bottleneck_onehot, normalized_gains))
+
+        normalized_gains = (
+            self._get_normalized_gains()
+        )
+
+        state = np.concatenate(
+            (
+                self.current_power,
+                self.last_rates,
+                bottleneck_onehot,
+                normalized_gains,
+            )
+        )
+
+        return state
+
+    def reset(self, user_positions=None):
+        """
+        重置环境。
+
+        参数
+        ----
+        user_positions:
+            None：
+                随机生成用户位置，用于训练。
+
+            shape=(K, 2) 的数组：
+                使用指定用户位置，用于固定位置验证。
+        """
+        self.current_step = 0
+
+        if user_positions is None:
+            self.user_positions = np.random.uniform(
+                low=0.0,
+                high=500.0,
+                size=(self.K, 2),
+            )
+        else:
+            positions = np.asarray(
+                user_positions,
+                dtype=np.float64,
+            )
+
+            expected_shape = (self.K, 2)
+
+            if positions.shape != expected_shape:
+                raise ValueError(
+                    f"user_positions 形状错误："
+                    f"{positions.shape}，"
+                    f"预期为：{expected_shape}"
+                )
+
+            if not np.all(np.isfinite(positions)):
+                raise ValueError(
+                    "user_positions 包含 NaN 或无穷值。"
+                )
+
+            # 必须复制，避免环境修改固定测试数据
+            self.user_positions = positions.copy()
+
+        self.current_power = np.ones(
+            self.K,
+            dtype=np.float64,
+        ) * (self.P_total / self.K)
+
+        self._calculate_channel_gains()
+
+        self.last_rates = self._calculate_rates()
+
+        return self._build_state()
 
     def step(self, action):
         self.current_step += 1
 
+        if not self.action_space.contains(action):
+            raise ValueError(
+                f"非法动作：{action}"
+            )
+
         if action < self.K * (self.K - 1):
-            i = action // (self.K - 1)
-            j_temp = action % (self.K - 1)
-            j = j_temp if j_temp < i else j_temp + 1
+            source_user = action // (self.K - 1)
 
-            if self.current_power[i] > self.delta_p + 0.001:
-                self.current_power[i] -= self.delta_p
-                self.current_power[j] += self.delta_p
+            target_temp = action % (self.K - 1)
 
-        rates = np.zeros(self.K)
-        for k in range(self.K):
-            h_k = self.channel_gains[k]
-            snr = (self.current_power[k] * h_k) / self.sigma2
-            rates[k] = (self.B / self.K) * math.log2(1 + snr) / 1e6
+            target_user = (
+                target_temp
+                if target_temp < source_user
+                else target_temp + 1
+            )
+
+            if (
+                self.current_power[source_user]
+                > self.delta_p + 0.001
+            ):
+                self.current_power[source_user] -= (
+                    self.delta_p
+                )
+
+                self.current_power[target_user] += (
+                    self.delta_p
+                )
+
+        rates = self._calculate_rates()
 
         self.last_rates = rates
 
-        # ---------------- 4. 计算奖励 ----------------
-        min_rate = np.min(rates)
-        beta = 20.0 
-        smooth_min = min_rate - (1.0 / beta) * np.log(np.sum(np.exp(-beta * (rates - min_rate))))
+        min_rate = float(np.min(rates))
 
-        # =============== 【修改位置 2】：取消所有乘数放大，回归本源 ===============
-        # 绝不让奖励超过 5.0，保护神经网络不会发生 Q-value 爆炸！
+        beta = 20.0
+
+        smooth_min = min_rate - (
+            1.0 / beta
+        ) * np.log(
+            np.sum(
+                np.exp(
+                    -beta * (rates - min_rate)
+                )
+            )
+        )
 
         if self.reward_type == "Q-Sum":
-            reward = float(np.sum(rates))      # 范围约在 1.0 ~ 3.0，安全
+            reward = float(np.sum(rates))
+
         elif self.reward_type == "Q-Min":
-            reward = float(smooth_min)         # 范围约在 0.1 ~ 0.5，绝对安全且平滑，原版
-            # reward = float(min_rate)           # Softmin
+            if self.use_softmin:
+                reward = float(smooth_min)
+            else:
+                reward = float(min_rate)
+
         elif self.reward_type == "Eval":
+            # 所有算法统一使用真实最低速率测试
             reward = float(min_rate)
+
         else:
-            reward = float(min_rate)
-        # ======================================================================
+            raise ValueError(
+                f"未知 reward_type："
+                f"{self.reward_type}"
+            )
 
-        bottleneck_idx = np.argmin(rates)
-        bottleneck_onehot = np.zeros(self.K)
-        bottleneck_onehot[bottleneck_idx] = 1.0
+        next_state = self._build_state()
 
-        # 【修改位置 3】：使用 dB 归一化
-        normalized_gains = self._get_normalized_gains()
-        next_state = np.concatenate((self.current_power, self.last_rates, bottleneck_onehot, normalized_gains))
-        done = bool(self.current_step >= self.max_steps)
+        done = bool(
+            self.current_step >= self.max_steps
+        )
 
         return next_state, reward, done

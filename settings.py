@@ -1,47 +1,129 @@
-import torch
 import os
-import numpy as np
 import random
-# For windows specific error
-os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
-# ----------------- 修改1：环境名称 -----------------
+import numpy as np
+import torch
+
+
+# Windows/OpenMP 兼容设置
+os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
+
+
+# ============================================================
+# 1. 环境设置
+# ============================================================
+
 ENVIRONMENT_NAME = "UAV_Static"
 
-# ----------------- 修改2：经验池与设备 -----------------
-# 简单的向量环境用 Uniform (均匀采样) 就足够了，计算速度更快
-MEMORY_TYPE = "Uniform" 
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+NUM_USERS = 10
 
-# ----------------- 修改3：关闭图像处理专用的帧堆叠 -----------------
-# 极其重要：我们的状态是一维向量，不是连续的图片，所以必须设为 1，否则会报维度错误
-HISTORY_LENGTH = 1 
-FRAME_SKIP = 1 
-TRAIN_FREQUENCY = 1 # 每次交互都进行一次网络训练，加快收敛
 
-# ----------------- 修改4：加快训练与打印频率的超参数 -----------------
+# ============================================================
+# 2. 消融实验版本
+# ============================================================
+#
+# 每次运行前只修改这里。
+#
+# 可选值：
+#   "full"
+#   "wo_softmin"
+#   "wo_dbnorm"
+#
+EXPERIMENT_VARIANT = "wo_dbnorm"
+
+VALID_EXPERIMENT_VARIANTS = {
+    "full",
+    "wo_softmin",
+    "wo_dbnorm",
+}
+
+if EXPERIMENT_VARIANT not in VALID_EXPERIMENT_VARIANTS:
+    raise ValueError(
+        f"未知实验版本：{EXPERIMENT_VARIANT}。"
+        f"允许值为：{VALID_EXPERIMENT_VARIANTS}"
+    )
+
+
+# ============================================================
+# 3. 固定验证用户位置
+# ============================================================
+#
+# 三个消融实验必须使用相同路径、相同随机种子和相同用户数。
+# 不要在不同实验之间修改或删除这个文件。
+#
+FIXED_VALIDATION_POSITIONS_PATH = (
+    f"fixed_data/"
+    f"uav_static_validation_positions_user{NUM_USERS}.npy"
+)
+
+FIXED_VALIDATION_POSITIONS_SEED = 20260708
+
+
+# ============================================================
+# 4. 经验池与设备
+# ============================================================
+
+MEMORY_TYPE = "Uniform"
+
+DEVICE = torch.device(
+    "cuda" if torch.cuda.is_available() else "cpu"
+)
+
+
+# ============================================================
+# 5. 状态与训练频率
+# ============================================================
+
+HISTORY_LENGTH = 1
+FRAME_SKIP = 1
+TRAIN_FREQUENCY = 1
+
+
+# ============================================================
+# 6. 强化学习超参数
+# ============================================================
+
 REWARD_DISCOUNT = 0.99
-INITIAL_EXPLORE_STEPS = 2000       # 初始纯随机探索步数 (缩短到 2000 步)
-TRAIN_STEPS = 500000               # 总训练步数 (20万步对于小网络完全足够)
-TARGET_NET_SYNC_FREQUENCY = 1000   # 目标网络同步频率 (缩短，加速早期学习)
-EVALUATION_FREQUENCY = 2000        # 每 2000 步就验证并打印一次结果，让你能频繁看到进展
-EVALUATION_TRIALS = 5              # 每次验证跑 5 个回合取平均
-EVALUATION_TRIALS_TEST = 50        # 最终测试跑 50 个回合
-REPLAY_MEMORY_SIZE = 50000         # 经验回放池大小
 
-RANDOM_SEEDS = [123, 321, 456]     # 跑3个随机种子用于后期画平滑曲线
+INITIAL_EXPLORE_STEPS = 2000
+
+TRAIN_STEPS = 200000
+
+TARGET_NET_SYNC_FREQUENCY = 1000
+
+EVALUATION_FREQUENCY = 2000
+
+# 为了先单独检查“测试位置是否相同”，暂时保留原来的 5。
+# 后续再单独讨论是否增加到 50 或更多。
+EVALUATION_TRIALS = 5
+
+EVALUATION_TRIALS_TEST = 50
+
+REPLAY_MEMORY_SIZE = 50000
+
+RANDOM_SEEDS = [123, 321, 456]
+
 EVALUATION_STATES = 200
-assert EVALUATION_FREQUENCY % TRAIN_FREQUENCY == 0
 
-# 全连接网络(MLP)比较容易训练，学习率可以稍微调大一点点
-# LEARNING_RATE = 1e-3 
 LEARNING_RATE = 1e-4
 
 
-def set_random_seed(rand_seed):
-    os.environ['PYTHONHASHSEED'] = str(rand_seed)
+assert EVALUATION_FREQUENCY % TRAIN_FREQUENCY == 0
+
+
+def set_random_seed(rand_seed: int) -> None:
+    """
+    设置训练随机种子。
+    """
+    os.environ["PYTHONHASHSEED"] = str(rand_seed)
+
     random.seed(rand_seed)
     np.random.seed(rand_seed)
     torch.manual_seed(rand_seed)
-    print(f"<<<<<<<<<<<<<<<<<Finished setting random seed at {rand_seed}!>>>>>>>>>>>>>>>")
-    return
+
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(rand_seed)
+        torch.cuda.manual_seed_all(rand_seed)
+
+    print("<<<<<<<<<<<<<<<<>>>>>>>>>>>>>>>>")
+    print(f"Random seed: {rand_seed}")
