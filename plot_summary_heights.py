@@ -4,6 +4,19 @@ import matplotlib.pyplot as plt
 import math
 import os
 
+plt.rcParams.update({
+    "font.family": "serif",              # 使用衬线字体
+    "font.serif": ["Times New Roman"],   # 强制使用 Times New Roman
+    "font.size": 12,                     # 全局基础字号
+    "axes.labelsize": 14,                # 坐标轴标签字号放大
+    "legend.fontsize": 11,               # 图例字号适中
+    "xtick.labelsize": 11,               # 刻度字号
+    "ytick.labelsize": 11,
+    "grid.alpha": 0.5,                   # 让网格线颜色变淡，不喧宾夺主
+    "grid.linestyle": "--"               # 网格线用虚线
+})
+
+
 # 1. 物理参数严谨设定
 B = 2e6              
 P_total = 1.0        
@@ -95,8 +108,8 @@ plt.plot(H_list, final_results["Equal"], marker='s', markersize=8, linestyle='--
 plt.plot(H_list, final_results["Regular"], marker='o', markersize=8, color="#E24A33", linewidth=2.5, label="Standard DQN (Q-Sum)")
 plt.plot(H_list, final_results["Modified"], marker='^', markersize=10, color="#348ABD", linewidth=3.0, label="Proposed Q-Min")
 
-plt.title(f"Max-Min Rate vs. UAV Height (K={K})", fontsize=16, fontweight='bold')
-plt.xlabel("UAV Height H (meters)", fontsize=14)
+# plt.title(f"Max-Min Rate vs. UAV Height (K={K})", fontsize=16, fontweight='bold')
+plt.xlabel(r"UAV Hovering Altitude $H$ (m)")
 plt.ylabel("Converged Max-Min Rate (Mbps)", fontsize=14)
 
 plt.xticks(H_list, fontsize=12)
@@ -104,7 +117,11 @@ plt.yticks(fontsize=12)
 plt.legend(loc="upper right", fontsize=12)
 plt.grid(True, linestyle='-.', alpha=0.7)
 
+# plt.tight_layout()
+# plt.savefig("Summary_Heights.png", dpi=300)
+# print("🎉 高度宏观神图绘制完毕！请查看 Summary_Heights_H.png")
+# plt.show()
+
 plt.tight_layout()
-plt.savefig("Summary_Heights_H.png", dpi=300)
-print("🎉 高度宏观神图绘制完毕！请查看 Summary_Heights_H.png")
+plt.savefig('fig_heights_trend.pdf', format='pdf', bbox_inches='tight')
 plt.show()

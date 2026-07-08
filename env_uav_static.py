@@ -11,7 +11,7 @@ class UAV_Emergency_Env(gym.Env):
         self.K = num_users
         self.P_total = 1.0        
         self.delta_p = 0.02       
-        self.H = 200.0            
+        self.H = 100.0            
         self.B = 2e6              
         self.sigma2 = 1e-14       
         self.beta0 = 1e-4         
@@ -34,13 +34,16 @@ class UAV_Emergency_Env(gym.Env):
 
     # =============== 【新增核心辅助函数：dB归一化】 ===============
     def _get_normalized_gains(self):
-        # 将微小的信道增益转化为对数域 (dB)，防止神经网络输入层数值崩溃
-        # 1e-20 是防止 log10(0) 的安全垫
-        gains_db = 10.0 * np.log10(self.channel_gains + 1e-20)
-        # 在 alpha=3.5 环境下，gains_db 大约在 -140dB 到 -100dB 之间
-        # 我们用 (dB + 150) / 50 将其完美映射到 [0, 1] 之间！
-        normalized_gains = (gains_db + 150.0) / 50.0 
-        return np.clip(normalized_gains, 0.0, 1.0)
+        # # 将微小的信道增益转化为对数域 (dB)，防止神经网络输入层数值崩溃
+        # # 1e-20 是防止 log10(0) 的安全垫
+        # gains_db = 10.0 * np.log10(self.channel_gains + 1e-20)
+        # # 在 alpha=3.5 环境下，gains_db 大约在 -140dB 到 -100dB 之间
+        # # 我们用 (dB + 150) / 50 将其完美映射到 [0, 1] 之间！
+        # normalized_gains = (gains_db + 150.0) / 50.0 
+        # return np.clip(normalized_gains, 0.0, 1.0)
+
+        return np.clip(self.channel_gains, 0.0, 1.0) #dB-Norm
+
     # ==========================================================
 
     def reset(self):
@@ -94,10 +97,12 @@ class UAV_Emergency_Env(gym.Env):
 
         # =============== 【修改位置 2】：取消所有乘数放大，回归本源 ===============
         # 绝不让奖励超过 5.0，保护神经网络不会发生 Q-value 爆炸！
+
         if self.reward_type == "Q-Sum":
             reward = float(np.sum(rates))      # 范围约在 1.0 ~ 3.0，安全
         elif self.reward_type == "Q-Min":
-            reward = float(smooth_min)         # 范围约在 0.1 ~ 0.5，绝对安全且平滑
+            reward = float(smooth_min)         # 范围约在 0.1 ~ 0.5，绝对安全且平滑，原版
+            # reward = float(min_rate)           # Softmin
         elif self.reward_type == "Eval":
             reward = float(min_rate)
         else:
