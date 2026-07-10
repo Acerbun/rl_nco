@@ -1,0 +1,21 @@
+\begin{table}[!t]
+    \caption{Terminal Performance Relative to the Exact Max-Min Solution ($K=10$, $H=100$~m)}
+    \label{tab:optimality_gap}
+    \centering
+    \footnotesize
+    \renewcommand{\arraystretch}{1.15}
+    \setlength{\tabcolsep}{3.3pt}
+    \begin{tabular}{lccc}
+        \hline
+        \textbf{Method} &
+        \begin{tabular}[c]{@{}c@{}}\textbf{Terminal Rate}\\\textbf{(Mbps)}\end{tabular} &
+        \begin{tabular}[c]{@{}c@{}}\textbf{Opt. Gap}\\\textbf{(\%)}\end{tabular} &
+        \begin{tabular}[c]{@{}c@{}}\textbf{Opt. Ratio}\\\textbf{(\%)}\end{tabular} \\
+        \hline
+        Equal allocation & $0.3214$ & $38.46$ & $61.54$ \\
+        Sum-rate DDQN & $0.2319\mathbin{\pm}0.0069$ & $55.82$ & $44.18$ \\
+        \textbf{Proposed Q-Min} & $\mathbf{0.4628\mathbin{\pm}0.0019}$ & $11.35$ & $88.65$ \\
+        Exact max-min & $0.5213$ & $0.00$ & $100.00$ \\
+        \hline
+    \end{tabular}
+\end{table}

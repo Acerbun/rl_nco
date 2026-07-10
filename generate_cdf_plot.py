@@ -87,8 +87,8 @@ if rates_q_sum is not None and rates_q_min is not None:
     plt.figure(figsize=(7, 5))
 
     # 因为有 5000 个密集点，使用 plt.plot 会比 plt.step 更加浑然天成
-    plt.plot(x_eq, y_eq, label='Baseline: Equal Allocation', color='#988ED5', linestyle='--', linewidth=2.5)
-    plt.plot(x_qsum, y_qsum, label='Standard DQN (Q-Sum)', color='#E24A33', linewidth=2.5)
+    plt.plot(x_eq, y_eq, label='Equal Allocation', color='#988ED5', linestyle='--', linewidth=2.5)
+    plt.plot(x_qsum, y_qsum, label='Sum-rate DDQN', color='#E24A33', linewidth=2.5)
     plt.plot(x_qmin, y_qmin, label='Proposed Q-Min', color='#348ABD', linewidth=3.0)
 
     # 动态高亮危险区域
